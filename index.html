@@ -923,7 +923,9 @@ function renderCADrv(){
   var found=false;
   for(var uid in S.users){
     var u=S.users[uid];
-    if(!u||u.role!=="driver"||u.centerId!==S.cid)continue;
+    if(!u)continue;
+    // Mostra sia driver che admin centro del centro corrente
+    if((u.role!=="driver"&&u.role!=="center_admin")||u.centerId!==S.cid)continue;
     found=true;
     var mine=P.filter(function(p){return p.assignedTo===uid;});
     var active=mine.filter(function(p){return p.status!=="done";}).length;
@@ -1360,11 +1362,42 @@ function submitQN(){var id=document.getElementById("qn-id").value;var note=(docu
 function submitCtr(){var name=(document.getElementById("ctr-name").value||"").trim();var city=(document.getElementById("ctr-city").value||"").trim();var code=(document.getElementById("ctr-code").value||"").trim();if(!name||!city||!code){document.getElementById("ctr-err").style.display="block";return;}var btn=document.getElementById("ctr-btn");btn.disabled=true;btn.innerHTML='<div class="spinner"></div>';if(db)db.ref("centers").push({info:{name:name,city:city,code:code},pickups:{},transfers:{},rubrica:{}}).then(function(){closeOv("ov-ctr");toast("Centro creato");});else{var id="c"+Date.now();S.centers[id]={info:{name:name,city:city,code:code}};renderSCtr();renderSOv();closeOv("ov-ctr");toast("Centro creato");}}
 function openNewUsr(){document.getElementById("usr-sh-title").textContent="Nuovo Utente";document.getElementById("usr-sh-sub").textContent="Crea account driver o admin";document.getElementById("usr-mode").value="new";document.getElementById("usr-uid").value="";["usr-name","usr-email","usr-pass"].forEach(function(id){var el=document.getElementById(id);if(el)el.value="";});document.getElementById("usr-err").style.display="none";document.getElementById("usr-email-wrap").style.display="block";document.getElementById("usr-pass-wrap").style.display="block";document.getElementById("usr-reset-wrap").style.display="none";var btn=document.getElementById("usr-btn");btn.disabled=false;btn.innerHTML="Crea Account";var sel=document.getElementById("usr-ctr");sel.innerHTML='<option value="">Seleziona…</option>';for(var cid in S.centers){var opt=document.createElement("option");opt.value=cid;opt.textContent=(S.centers[cid].info&&S.centers[cid].info.name)||cid;sel.appendChild(opt);}usrRoleUI();openOv("ov-usr");setTimeout(function(){var el=document.getElementById("usr-name");if(el)el.focus();},350);}
 function usrRoleUI(){var wrap=document.getElementById("usr-ctr-wrap");if(wrap)wrap.style.display="block";}
-function submitUsr(){var mode=document.getElementById("usr-mode").value;var name=(document.getElementById("usr-name").value||"").trim();var email=(document.getElementById("usr-email").value||"").trim().toLowerCase();var pass=document.getElementById("usr-pass").value||"";var role=document.getElementById("usr-role").value;var ctrId=document.getElementById("usr-ctr").value;if(!name||!email||pass.length<6||!ctrId){document.getElementById("usr-err").textContent="Compila tutti i campi (password min. 6 caratteri)";document.getElementById("usr-err").style.display="block";return;}var btn=document.getElementById("usr-btn");btn.disabled=true;btn.innerHTML='<div class="spinner"></div>';if(secApp&&db){secApp.auth().createUserWithEmailAndPassword(email,pass).then(function(cred){return db.ref("users/"+cred.user.uid).set({name:name,email:email,role:role,centerId:ctrId||null}).then(function(){return secApp.auth().signOut();});}).then(function(cred){
-        S.users[cred.user.uid]={name:name,email:email,role:role,centerId:ctrId||null};
-        renderSUsr();renderSOv();
-        closeOv("ov-usr");toast("Account creato!");
-      }).catch(function(e){btn.disabled=false;btn.innerHTML="Crea Account";document.getElementById("usr-err").textContent=e.code==="auth/email-already-in-use"?"Email gia' registrata.":"Errore: "+e.message;document.getElementById("usr-err").style.display="block";});}else{var uid="demo_"+email;S.users[uid]={name:name,email:email,role:role,centerId:ctrId||null};renderSUsr();renderSOv();closeOv("ov-usr");toast("Utente creato (demo)");}}
+function submitUsr(){var mode=document.getElementById("usr-mode").value;var name=(document.getElementById("usr-name").value||"").trim();var email=(document.getElementById("usr-email").value||"").trim().toLowerCase();var pass=document.getElementById("usr-pass").value||"";var role=document.getElementById("usr-role").value;var ctrId=document.getElementById("usr-ctr").value;if(!name||!email||pass.length<6||!ctrId){document.getElementById("usr-err").textContent="Compila tutti i campi (password min. 6 caratteri)";document.getElementById("usr-err").style.display="block";return;}var btn=document.getElementById("usr-btn");btn.disabled=true;btn.innerHTML='<div class="spinner"></div>';if(secApp&&db){
+    secApp.auth().createUserWithEmailAndPassword(email,pass)
+    .then(function(cred){
+      var uid=cred.user.uid;
+      var userData={name:name,email:email,role:role,centerId:ctrId||null};
+      // Salva in /users
+      db.ref("users/"+uid).set(userData).catch(function(){});
+      // Se è driver o admin centro, salvalo anche in /centers/{cid}/drivers
+      if(ctrId&&(role==="driver"||role==="center_admin")){
+        db.ref("centers/"+ctrId+"/drivers/"+uid).set(userData).catch(function(){});
+      }
+      // Aggiorna locale
+      S.users[uid]=userData;
+      // Sign out dalla seconda istanza Firebase
+      secApp.auth().signOut().catch(function(){});
+      // Aggiorna UI
+      renderSUsr();renderSOv();
+      closeOv("ov-usr");
+      btn.disabled=false;btn.innerHTML="Crea Account";
+      toast("Account creato!");
+    })
+    .catch(function(e){
+      btn.disabled=false;btn.innerHTML="Crea Account";
+      document.getElementById("usr-err").textContent=
+        e.code==="auth/email-already-in-use"?"Email gia' registrata.":
+        e.code==="auth/weak-password"?"Password troppo corta (min. 6 caratteri).":
+        "Errore: "+e.message;
+      document.getElementById("usr-err").style.display="block";
+    });
+  }else{
+    var uid2="demo_"+email;
+    S.users[uid2]={name:name,email:email,role:role,centerId:ctrId||null};
+    renderSUsr();renderSOv();closeOv("ov-usr");
+    btn.disabled=false;btn.innerHTML="Crea Account";
+    toast("Utente creato (demo)");
+  }}
 
 /* ════════════════════════════════════════════
    EDIT UTENTE (superadmin)
@@ -1533,6 +1566,15 @@ function attachListeners(cid, role){
       renderCADrv();
     });
   }
+
+  // Listener drivers del centro (aggiornamento live)
+  var drvRef = db.ref("centers/"+cid+"/drivers");
+  drvRef.on("value",function(s){
+    var loaded=s.val()||{};
+    for(var k in loaded) S.users[k]=loaded[k];
+    renderCADrv();
+  });
+  FB_LISTENERS.push(drvRef);
 
   // Monitor connessione Firebase
   db.ref(".info/connected").on("value",function(snap){
