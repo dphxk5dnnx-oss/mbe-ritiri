@@ -381,6 +381,9 @@ button{cursor:pointer}
     <div class="qrow" onclick="ql('driver@mbe.it','driver123')"><div><div class="qrow-label">&#128666; Driver</div><div class="qrow-info">driver@mbe.it &middot; driver123</div></div></div>
   </div>
   <div class="login-footer">MBE San Benedetto del Tronto &middot; Gestionale Interno</div>
+<div style="margin-top:8px;font-size:10px;color:rgba(255,255,255,.25);letter-spacing:.05em;animation:fadeIn .5s ease .4s both">
+  Ideato e progettato da <span style="color:rgba(255,255,255,.4);font-weight:600">Claudio Grimaldi</span>
+</div>
 </div>
 </div>
 
@@ -1274,7 +1277,10 @@ function openAddPk(){
   if(ME.role==="center_admin"||ME.role==="superadmin"){
     wrap.style.display="block";
     var sel=document.getElementById("ap-assign");sel.innerHTML='<option value="">— Lascia libero —</option>';
-    for(var uid in S.users){var u=S.users[uid];if(u.role==="driver"&&u.centerId===S.cid){var opt=document.createElement("option");opt.value=uid;opt.textContent=u.name||u.email;sel.appendChild(opt);}}
+    // Carica da Firebase se necessario
+    function _fillAssignSel(){for(var uid in S.users){var u=S.users[uid];if((u.role==="driver"||u.role==="center_admin")&&u.centerId===S.cid){var opt=document.createElement("option");opt.value=uid;opt.textContent=u.name||u.email;sel.appendChild(opt);}}}
+    var drvs=Object.keys(S.users).filter(function(k){return S.users[k].centerId===S.cid;});
+    if(drvs.length===0&&db&&S.cid){db.ref("centers/"+S.cid+"/drivers").once("value",function(s){var d=s.val()||{};for(var k in d)S.users[k]=d[k];_fillAssignSel();});}else _fillAssignSel();
   }else wrap.style.display="none";
   openOv("ov-add");setTimeout(function(){var el=document.getElementById("ap-name");if(el)el.focus();},350);
 }
@@ -1302,13 +1308,76 @@ function savePk(pk){
 function setStatus(id,status){var upd={status:status};if(status==="done"){upd.completedAt=Date.now();upd.completedDate=todayStr();}if(db&&S.cid)db.ref("centers/"+S.cid+"/pickups/"+id).update(upd);else if(S.pickups[id]){for(var k in upd)S.pickups[id][k]=upd[k];reRender();}toast(status==="done"?"Completato!":status==="in_transit"?"In transito":"Aggiornato");}
 function selfAssign(id){var upd={status:"assigned",assignedTo:ME.uid,assignedName:ME.name||ME.email};if(db&&S.cid)db.ref("centers/"+S.cid+"/pickups/"+id).update(upd);else if(S.pickups[id]){for(var k in upd)S.pickups[id][k]=upd[k];reRender();}toast("Ritiro preso in carico!");}
 function acceptProp(id){var upd={status:"assigned",rejectionNote:null};if(db&&S.cid)db.ref("centers/"+S.cid+"/pickups/"+id).update(upd);else if(S.pickups[id]){S.pickups[id].status="assigned";S.pickups[id].rejectionNote=null;reRender();}toast("Ritiro accettato!");setTimeout(function(){drvTab("d-mine");},700);}
-function openAssign(id,name){UI.assignId=id;document.getElementById("assign-sub").textContent="Ritiro: "+name;var sel=document.getElementById("assign-drv");sel.innerHTML='<option value="">— Lascia libero —</option>';for(var uid in S.users){var u=S.users[uid];if(u.role==="driver"&&u.centerId===S.cid){var opt=document.createElement("option");opt.value=uid;opt.textContent=u.name||u.email;sel.appendChild(opt);}}openOv("ov-assign");}
+function openAssign(id,name){
+  UI.assignId=id;
+  document.getElementById("assign-sub").textContent="Ritiro: "+name;
+  function _buildAssignSelect(){
+    var sel=document.getElementById("assign-drv");
+    sel.innerHTML='<option value="">— Lascia libero —</option>';
+    for(var uid in S.users){
+      var u=S.users[uid];
+      if((u.role==="driver"||u.role==="center_admin")&&u.centerId===S.cid){
+        var opt=document.createElement("option");
+        opt.value=uid;opt.textContent=u.name||u.email;
+        sel.appendChild(opt);
+      }
+    }
+    openOv("ov-assign");
+  }
+  var drivers=Object.keys(S.users).filter(function(k){return S.users[k].centerId===S.cid&&(S.users[k].role==="driver"||S.users[k].role==="center_admin");});
+  if(drivers.length===0 && db && S.cid){
+    db.ref("centers/"+S.cid+"/drivers").once("value",function(s){
+      var d=s.val()||{};
+      for(var k in d) S.users[k]=d[k];
+      db.ref("users").orderByChild("centerId").equalTo(S.cid).once("value",function(s2){
+        var u2=s2.val()||{};
+        for(var k in u2) S.users[k]=u2[k];
+        _buildAssignSelect();
+      });
+    });
+  } else {
+    _buildAssignSelect();
+  }
+}
 function submitAssign(){var sel=document.getElementById("assign-drv");var uid=sel.value||null;var uname=uid?sel.options[sel.selectedIndex].text:null;var upd={assignedTo:uid,assignedName:uname,status:uid?"proposed":"pending"};if(db&&S.cid)db.ref("centers/"+S.cid+"/pickups/"+UI.assignId).update(upd);else if(S.pickups[UI.assignId]){for(var k in upd)S.pickups[UI.assignId][k]=upd[k];reRender();}closeOv("ov-assign");toast(uid?"Proposto a "+uname:"Ritiro liberato");}
 
 /* ════════════════════════════════════════════
    TRANSFERS
 ════════════════════════════════════════════ */
-function openXfer(id,name){UI.xferId=id;document.getElementById("xfer-sub").textContent="Ritiro: "+name;document.getElementById("xfer-note").value="";var sel=document.getElementById("xfer-drv");sel.innerHTML='<option value="">Seleziona…</option>';for(var uid in S.users){var u=S.users[uid];if(u.role==="driver"&&u.centerId===S.cid&&uid!==ME.uid){var opt=document.createElement("option");opt.value=uid;opt.textContent=u.name||u.email;sel.appendChild(opt);}}openOv("ov-xfer");}
+function openXfer(id,name){
+  UI.xferId=id;
+  document.getElementById("xfer-sub").textContent="Ritiro: "+name;
+  document.getElementById("xfer-note").value="";
+  function _buildXferSelect(){
+    var sel=document.getElementById("xfer-drv");
+    sel.innerHTML='<option value="">Seleziona…</option>';
+    for(var uid in S.users){
+      var u=S.users[uid];
+      if((u.role==="driver"||u.role==="center_admin")&&u.centerId===S.cid&&uid!==ME.uid){
+        var opt=document.createElement("option");
+        opt.value=uid;opt.textContent=u.name||u.email;
+        sel.appendChild(opt);
+      }
+    }
+    openOv("ov-xfer");
+  }
+  // Se S.users è vuoto o ha solo me, ricarica da Firebase
+  var otherDrivers=Object.keys(S.users).filter(function(k){return k!==ME.uid&&S.users[k].centerId===S.cid;});
+  if(otherDrivers.length===0 && db && S.cid){
+    db.ref("centers/"+S.cid+"/drivers").once("value",function(s){
+      var d=s.val()||{};
+      for(var k in d) S.users[k]=d[k];
+      // Fallback su /users
+      db.ref("users").orderByChild("centerId").equalTo(S.cid).once("value",function(s2){
+        var u2=s2.val()||{};
+        for(var k in u2) S.users[k]=u2[k];
+        _buildXferSelect();
+      });
+    });
+  } else {
+    _buildXferSelect();
+  }
+}
 function submitXfer(){var sel=document.getElementById("xfer-drv");var toUid=sel.value;if(!toUid){toast("Seleziona un driver");return;}var toName=sel.options[sel.selectedIndex].text;var p=S.pickups[UI.xferId];var tr={pickupId:UI.xferId,pickupName:(p&&p.name)||"",fromUid:ME.uid,fromName:ME.name||ME.email,toUid:toUid,toName:toName,status:"pending",note:(document.getElementById("xfer-note").value||"").trim(),reason:null,ts:Date.now(),centerId:S.cid};if(db&&S.cid)db.ref("centers/"+S.cid+"/transfers").push(tr);else{var id="tr"+Date.now();S.transfers[id]=tr;S.transfers[id]._id=id;S.transfers[id].id=id;reRender();}closeOv("ov-xfer");toast("Richiesta inviata a "+toName);}
 function acceptXfer(xfId){var t=S.transfers[xfId];if(!t)return;var upd={assignedTo:ME.uid,assignedName:ME.name||ME.email,status:"assigned",rejectionNote:null};if(db&&S.cid){db.ref("centers/"+S.cid+"/pickups/"+t.pickupId).update(upd);db.ref("centers/"+S.cid+"/transfers/"+xfId).remove();}else{if(S.pickups[t.pickupId])for(var k in upd)S.pickups[t.pickupId][k]=upd[k];delete S.transfers[xfId];reRender();}toast("Trasferimento accettato!");}
 function openReject(xfId){UI.rejectXferId=xfId;UI.declineId=null;UI.selReason=null;document.getElementById("rej-title").textContent="Rifiuta Richiesta";document.getElementById("rej-sub").textContent="Seleziona il motivo";buildReasons();document.getElementById("rej-err").style.display="none";openOv("ov-reject");}
