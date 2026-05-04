@@ -814,6 +814,7 @@ function demoMode(email){
 ════════════════════════════════════════════ */
 function launchSuper(){
   showScreen("super");renderSOv();renderSCtr();renderSUsr();
+  syncAllCenters(); // Sincronizza tutti i driver
   if(db){db.ref("centers").on("value",function(s){S.centers=s.val()||{};lastSync=Date.now();renderSOv();renderSCtr();});db.ref("users").on("value",function(s){S.users=s.val()||{};renderSUsr();});}
 }
 function launchCAdmin(cid){
@@ -824,6 +825,15 @@ function launchCAdmin(cid){
   renderCAPk();renderCADrv();renderCARb();renderCANt();
   initPush();
   attachListeners(cid,"center_admin");
+  syncDriversToCenter(cid); // Sincronizza driver al primo accesso
+  // Carica anche da /users come fallback immediato
+  if(db){
+    db.ref("users").orderByChild("centerId").equalTo(cid).once("value",function(s){
+      var loaded=s.val()||{};
+      for(var k in loaded) S.users[k]=loaded[k];
+      renderCADrv();
+    });
+  }
 }
 function launchDriver(cid){
   S.cid=cid;
@@ -1594,6 +1604,62 @@ function loadCenterDrivers(cid, cb){
     var d=s.val()||{};
     for(var k in d) S.users[k]=d[k];
     if(cb)cb();
+  });
+}
+
+/* ════════════════════════════════════════════════════
+   SYNC: copia driver da /users a /centers/{cid}/drivers
+   Chiamata automaticamente al primo accesso admin/superadmin
+════════════════════════════════════════════════════ */
+function syncDriversToCenter(cid){
+  if(!db||!cid) return;
+  // Leggi tutti gli utenti
+  db.ref("users").once("value",function(snap){
+    var users=snap.val()||{};
+    var updates={};
+    for(var uid in users){
+      var u=users[uid];
+      // Copia i driver del centro in /centers/{cid}/drivers
+      if(u.centerId===cid && (u.role==="driver"||u.role==="center_admin")){
+        updates["centers/"+cid+"/drivers/"+uid]={
+          name:  u.name  ||"",
+          email: u.email ||"",
+          role:  u.role  ||"driver",
+          centerId: cid
+        };
+        // Aggiorna anche S.users localmente
+        S.users[uid]=u;
+      }
+    }
+    if(Object.keys(updates).length>0){
+      db.ref().update(updates,function(){
+        renderCADrv();
+      });
+    }
+  });
+}
+
+/* Stesso per superadmin: sincronizza tutti i centri ══ */
+function syncAllCenters(){
+  if(!db) return;
+  db.ref("users").once("value",function(snap){
+    var users=snap.val()||{};
+    var updates={};
+    for(var uid in users){
+      var u=users[uid];
+      if(!u.centerId||!u.role) continue;
+      if(u.role==="driver"||u.role==="center_admin"){
+        updates["centers/"+u.centerId+"/drivers/"+uid]={
+          name:  u.name  ||"",
+          email: u.email ||"",
+          role:  u.role  ||"driver",
+          centerId: u.centerId
+        };
+      }
+    }
+    if(Object.keys(updates).length>0){
+      db.ref().update(updates);
+    }
   });
 }
 
