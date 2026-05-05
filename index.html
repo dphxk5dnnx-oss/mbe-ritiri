@@ -454,8 +454,8 @@ button{cursor:pointer}
   </div></div>
   <div class="tabs"><div class="tabs-inner">
     <button class="tab-btn on" data-t="d-prop" onclick="drvTab('d-prop')">&#128236; Da Accettare <span class="tbadge" id="d-prop-b" style="display:none">0</span></button>
-    <button class="tab-btn"   data-t="d-mine" onclick="drvTab('d-mine')">&#128230; I Miei</button>
-    <button class="tab-btn"   data-t="d-all"  onclick="drvTab('d-all')">&#127978; Tutti</button>
+    <button class="tab-btn"   data-t="d-mine" onclick="drvTab('d-mine')">&#9200; Da Fare</button>
+    <button class="tab-btn"   data-t="d-all"  onclick="drvTab('d-all')">&#128203; Tutti</button>
     <button class="tab-btn"   data-t="d-req"  onclick="drvTab('d-req')">&#128260; Trasferimenti <span class="tbadge" id="d-req-b" style="display:none">0</span></button>
   </div></div>
   <div class="hint-bar"><svg width="13" height="13" viewBox="0 0 24 24" fill="#0055AA"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>Tocca l'indirizzo per navigazione GPS</div>
@@ -1168,20 +1168,24 @@ function buildProposed(p){
 function renderDrvMine(){
   var today=todayStr();
   var list=entries(S.pickups).filter(function(p){
-    // Miei = assegnati a me OPPURE creati da me (non ancora assegnati)
-    var isMineAssigned = p.assignedTo===ME.uid && p.status!=="proposed";
-    var isMineCreated  = p.createdBy===ME.uid && !p.assignedTo;
+    // Da fare = assegnati a me NON completati, o creati da me non ancora assegnati
+    var isMineAssigned = p.assignedTo===ME.uid && p.status!=="proposed" && p.status!=="done";
+    var isMineCreated  = p.createdBy===ME.uid && !p.assignedTo && p.status!=="done";
     return isMineAssigned || isMineCreated;
   }).sort(function(a,b){if(a.status==="done"&&b.status!=="done")return 1;if(b.status==="done"&&a.status!=="done")return -1;var pr={urgent:0,normal:1};return (pr[a.priority]||1)-(pr[b.priority]||1)||b.ts-a.ts;});
-  var el=document.getElementById("t-d-mine");if(el)el.innerHTML=list.length?list.map(function(p){return buildPk(p,"drv");}).join(""):emptyH("&#128230;","Nessun ritiro assegnato","Vai su Tutti per prenderne uno");
+  var el=document.getElementById("t-d-mine");if(el)el.innerHTML=list.length?list.map(function(p){return buildPk(p,"drv");}).join(""):emptyH("&#9989;","Tutto fatto!","Non hai ritiri da completare");
 }
 function renderDrvAll(){
   var today=todayStr();
-  // Mostra TUTTI i ritiri del centro non completati
-  var list=entries(S.pickups).filter(function(p){
-    return p.status!=="done" && (!p.date||p.date<=today||p.date==="");
-  }).sort(function(a,b){var pr={urgent:0,normal:1};return (pr[a.priority]||1)-(pr[b.priority]||1)||b.ts-a.ts;});
-  var el=document.getElementById("t-d-all");if(el)el.innerHTML=list.length?list.map(function(p){return buildPk(p,"drv-all");}).join(""):emptyH("&#9989;","Tutti completati","");
+  // Mostra TUTTI i ritiri del centro (inclusi completati)
+  var list=entries(S.pickups).sort(function(a,b){
+    // Completati in fondo
+    if(a.status==="done"&&b.status!=="done") return 1;
+    if(b.status==="done"&&a.status!=="done") return -1;
+    var pr={urgent:0,normal:1};
+    return (pr[a.priority]||1)-(pr[b.priority]||1)||b.ts-a.ts;
+  });
+  var el=document.getElementById("t-d-all");if(el)el.innerHTML=list.length?list.map(function(p){return buildPk(p,"drv-all");}).join(""):emptyH("&#128203;","Nessun ritiro nel centro","");
 }
 function renderDrvReq(){
   var list=entries(S.transfers).filter(function(t){return (t.fromUid===ME.uid||t.toUid===ME.uid)&&t.status==="pending";}).sort(function(a,b){return b.ts-a.ts;});
@@ -1219,8 +1223,17 @@ function buildPk(p,ctx){
       acts+='<button class="pc-btn" data-id="'+p.id+'" data-name="'+h(p.name)+'" onclick="openQN(this.getAttribute(\'data-id\'),this.getAttribute(\'data-name\'))" style="padding:6px 9px">&#128221;</button>';
     }
   }else if(ctx==="drv-all"){
-    if(!p.assignedTo)acts+='<button class="pc-btn b-purple" data-id="'+p.id+'" onclick="selfAssign(this.getAttribute(\'data-id\'))">&#9995; Prendo io</button>';
-    else if(isMine&&!isDone&&p.status!=="proposed")acts+='<button class="pc-btn b-blue" data-id="'+p.id+'" data-name="'+h(p.name)+'" onclick="openXfer(this.getAttribute(\'data-id\'),this.getAttribute(\'data-name\'))">&#128260; Gira a&hellip;</button>';
+    if(!isDone){
+      if(!p.assignedTo&&p.status==="pending"){
+        acts+='<button class="pc-btn b-purple" data-id="'+p.id+'" onclick="selfAssignBtn(this)">&#9995; Prendo io</button>';
+      }
+      if(isMine&&p.status!=="proposed"){
+        if(p.status==="assigned") acts+='<button class="pc-btn b-orange" data-id="'+p.id+'" data-st="in_transit" onclick="setStatusBtn(this)">&#128666; In transito</button>';
+        if(p.status==="in_transit") acts+='<button class="pc-btn b-green" data-id="'+p.id+'" data-st="done" onclick="setStatusBtn(this)">&#10003; Completato</button>';
+        acts+='<button class="pc-btn b-blue" data-id="'+p.id+'" data-name="'+h(p.name)+'" onclick="openXferBtn(this)">&#128260; Gira a&hellip;</button>';
+        acts+='<button class="pc-btn" data-id="'+p.id+'" data-name="'+h(p.name)+'" onclick="openQNBtn(this)" style="padding:6px 9px">&#128221;</button>';
+      }
+    }
   }
   var delBtn=ctx==="ca"?'<div class="pc-right"><button class="pc-del" data-id="'+p.id+'" data-name="'+h(p.name)+'" onclick="askDel(\'pickup\',this.getAttribute(\'data-id\'),this.getAttribute(\'data-name\'))"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>':"";
   return '<div class="pcard '+(isDone?"done":"")+(isUrg&&!isDone?" urgent":"")+'" data-id="'+p.id+'"><div class="pc-inner"><div class="'+stripCls+'"></div><div class="pc-body"><div class="pc-name">'+h(p.name)+'</div><div class="pc-badges">'+badges+'</div>'+addrBtn(p)+(p.phone?'<div class="pc-detail">'+h(p.phone)+'</div>':"")+(p.timeSlot?'<div class="pc-detail">'+h(p.timeSlot)+'</div>':"")+(p.note?'<div class="pc-detail">'+h(p.note)+'</div>':"")+(p.rejectionNote?'<div class="pc-reject-note">&#9888; '+h(p.rejectionNote)+'</div>':"")+(p.driverNote?'<button class="pc-driver-note" data-id="'+p.id+'" data-name="'+h(p.name)+'" onclick="openQN(this.getAttribute(\'data-id\'),this.getAttribute(\'data-name\'))">&#128221; '+h(p.driverNote)+'</button>':"")+(p.date&&p.date!==todayStr()?'<div class="pc-detail" style="color:#CC7700">&#128197; '+dispDate(p.date)+'</div>':"")+(p.assignedTo!==undefined?aRow:"")+(acts?'<div class="pc-actions">'+acts+'</div>':"")+'<div class="pc-meta">'+h(p.createdByName||"")+" &middot; "+ago(p.ts)+'</div></div>'+delBtn+'</div></div>';
@@ -1773,6 +1786,11 @@ function syncAllCenters(){
     }
   });
 }
+
+function selfAssignBtn(btn){ selfAssign(btn.getAttribute("data-id")); }
+function setStatusBtn(btn){ setStatus(btn.getAttribute("data-id"), btn.getAttribute("data-st")); }
+function openXferBtn(btn){ openXfer(btn.getAttribute("data-id"), btn.getAttribute("data-name")); }
+function openQNBtn(btn){ openQN(btn.getAttribute("data-id"), btn.getAttribute("data-name")); }
 
 function reRender(){
   if(!ME)return;
